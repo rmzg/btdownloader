@@ -14,7 +14,7 @@ my $ssh = 'ssh';
 my $scp = 'scp';
 my $du = "du -Lsb --apparent-size";
 my $host = "wsnl.rmzg.us";
-my $dir = shell_quote "testdir";
+my $dir = shell_quote "rt/done";
 
 my @remote_files = `$ssh $host ls -lL $dir`;
 shift @remote_files; #ls summary line
