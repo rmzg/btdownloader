@@ -95,7 +95,8 @@ for my $row ( @selected_rows ) {
 
 	print "Local Size[$local_size_file]: $local_size\n";
 
-	if( $remote_size == $local_size ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ); print "Deleted $file\n"; }
+	#WHY AREN'T MY FILE SIZES THE SAME LETS HOPE 8192 IS ENOUGH
+	if( abs( $remote_size - $local_size ) < 8192 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ); print "Deleted $file\n"; }
 
 	print "\n";
 }
