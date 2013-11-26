@@ -40,7 +40,7 @@ my $table = TW::Table::Paged->new(
 );
 
 $table->{row_offset} = 0;
-$table->add_column( Label => "Test Col", align => "left", width => 32 );
+$table->add_column( Label => "Test Col", align => "left", width => 49 );
 $table->add_row( $_->[8] ) for @remote_files;
 
 
@@ -96,7 +96,9 @@ for my $row ( @selected_rows ) {
 	print "Local Size[$local_size_file]: $local_size\n";
 
 	#WHY AREN'T MY FILE SIZES THE SAME LETS HOPE 8192 IS ENOUGH
-	if( abs( $remote_size - $local_size ) < 8192 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ); print "Deleted $file\n"; }
+	if( abs( $remote_size - $local_size ) < 8192 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ); print "Deleted Remote $file\n"; }
+	else { print "Size difference didn't remove remote $file\n"; }
+
 
 	print "\n";
 }
