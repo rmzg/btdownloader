@@ -13,7 +13,7 @@ BEGIN { *TW:: = *Tickit::Widget:: }
 my $ssh = 'ssh';
 my $scp = 'scp';
 my $du = "du -Lsb --apparent-size";
-my $host = "wsnl.rmzg.us";
+my $host = "wsnl.rmz.gs";
 my $dir = shell_quote "rt/done";
 
 my @remote_files = `$ssh $host ls -lL $dir`;
