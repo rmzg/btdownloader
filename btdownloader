@@ -10,19 +10,30 @@ use Tickit::Widgets qw/Box VBox HBox Button/;
 use Tickit::Widget::Table::Paged;
 BEGIN { *TW:: = *Tickit::Widget:: }
 
+if( $ARGV[0] eq '-a' ) { $::SKIP_GUI = 1 }
+
 my $ssh = 'ssh';
-my $scp = 'scp';
-my $du = "du -Lsb --apparent-size";
-my $host = "wsnl.rmz.gs";
+my $host = "dhau.rmz.gs";
 my $dir = shell_quote "rt/done";
 
-my @remote_files = `$ssh $host ls -lL $dir`;
-shift @remote_files; #ls summary line
-chomp @remote_files;
-$_ = [split " ", $_, 9] for @remote_files;
+my @remote_files = map { 
+	chomp; 
+	my $x = [split " ", $_, 2];
+	$x->[1] =~ s/$dir\/?//;
+	$x 
+} `$ssh $host du -hscL $dir/\\*`;
+pop @remote_files; #du summary line
+#chomp @remote_files;
+#$_ = [split " ", $_, 2] for @remote_files;
+
+my @selected_rows;
+
+if( $::SKIP_GUI ) { 
+	@selected_rows = @remote_files;
+	goto BEGIN_DOWNLOAD;
+}
 
 my $tickit; 
-
 my $table = TW::Table::Paged->new( 
 
 	style => {
@@ -40,15 +51,15 @@ my $table = TW::Table::Paged->new(
 );
 
 $table->{row_offset} = 0;
-$table->add_column( Label => "Test Col", align => "left", width => 49 );
-$table->add_row( $_->[8] ) for @remote_files;
+$table->add_column( Label => "Size", align => "left", width => 6 );
+$table->add_column( Label => "File Name", align => "left", width => 80 );
+$table->add_row( $_->[0], $_->[1] ) for @remote_files;
 
 
-my @selected_rows;
 my $hbox = TW::HBox->new;
 $hbox->add( 
 TW::Box->new(child_lines => 3, child_cols => 16, child => 
-	TW::Button->new( label => "Download", on_click => sub { @selected_rows = $table->get_selected; $tickit->stop; } ),
+	TW::Button->new( label => "Download", on_click => sub { @selected_rows = $table->selected_rows; $tickit->stop; } ),
 	),
 	expand => 1 
 );
@@ -64,8 +75,8 @@ $vbox->add( $table, expand => 1 );
 $vbox->add( $hbox, expand => 1 );
 
 my $box = TW::Box->new( 
-	child_lines => 25,
-	child_cols => 50,
+	child_lines => 45,
+	child_cols => 90,
 	valign => 0.5,
 	align => 'centre', 
 	child => $vbox 
@@ -77,27 +88,16 @@ $tickit->run;
 
 ##################
 # Start downloads based on selected files.
-
+BEGIN_DOWNLOAD:
 for my $row ( @selected_rows ) { 
-	my $file = $row->[0];
+	my $file = $row->[1];
 
 	print "==== Starting $file ====\n\n";
 
-	chomp( my $remote_size_ret = `$ssh $host $du $dir/\Q\Q$file\E` );
-	my( $remote_size, $remote_size_file ) = split " ", $remote_size_ret, 2;
+	#my $scp_ret = system( $scp, "-r", "$host:$dir/\Q$file", "." );
+	my $scp_ret = system( 'rsync', "-rvzL", "--progress", "--size-only", "$host:$dir/\Q$file", "." );
+	if( $scp_ret == 0 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ) }
 
-	print "Remote Size[$remote_size_file]: $remote_size\n";
-
-	system( $scp, "-r", "$host:$dir/\Q$file", "." );
-
-	chomp( my $local_size_ret = `$du \Q$file` );
-	my( $local_size, $local_size_file ) = split " ", $local_size_ret, 2;
-
-	print "Local Size[$local_size_file]: $local_size\n";
-
-	#WHY AREN'T MY FILE SIZES THE SAME LETS HOPE 8192 IS ENOUGH
-	if( abs( $remote_size - $local_size ) < 8192 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ); print "Deleted Remote $file\n"; }
-	else { print "Size difference didn't remove remote $file\n"; }
 
 
 	print "\n";
