@@ -39,11 +39,12 @@ sub new {
 	my $process = IO::Async::Process->new(
 		command => [qw/rsync --progress --size-only -rvzL/, "$file->{host}:$file->{dir}/\Q$file->{file}", "."],
 		on_finish => sub { 
-			my $exit = shift;
+			my( $process, $exit ) = @_;
+
 			if( $exit == 0 ) {
-				#$loop->fork( code => sub {
-					#system( 'ssh', $file->{host}, 'rm', '-f', "$file->{dir}/\Q$file" );
-				#});
+				$loop->fork( code => sub {
+					system( 'ssh', $file->{host}, 'rm', '-f', "$file->{dir}/\Q$file->{file}" );
+				});
 			}
 
 			$cb->($self);

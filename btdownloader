@@ -133,7 +133,9 @@ sub begin_download {
 			$hbox->add( $new_rs->{widget} );
 		}
 
-		if( $hbox->children == 0 ) { $tickit->stop; }
+		if( $hbox->children == 0 ) { 
+				$tickit->stop; 
+		}
 	};
 
 	for( 0 .. 2 ) {
