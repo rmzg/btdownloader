@@ -5,100 +5,152 @@ use warnings;
 
 use String::ShellQuote qw/shell_quote/;
 
-use Tickit;
-use Tickit::Widgets qw/Box VBox HBox Button/;
+use IO::Async::Loop;
+
+use Tickit::Async;
+use Tickit::Widgets qw/Box VBox HBox Button Static/;
 use Tickit::Widget::Table::Paged;
 BEGIN { *TW:: = *Tickit::Widget:: }
 
-if( $ARGV[0] eq '-a' ) { $::SKIP_GUI = 1 }
+use Rsync;
 
 my $ssh = 'ssh';
 my $host = "dhau.rmz.gs";
 my $dir = shell_quote "rt/done";
+#if( $ARGV[0] eq '-a' ) { $::SKIP_GUI = 1 }
 
-my @remote_files = map { 
-	chomp; 
-	my $x = [split " ", $_, 2];
-	$x->[1] =~ s/$dir\/?//;
-	$x 
-} `$ssh $host du -hscL $dir/\\*`;
-pop @remote_files; #du summary line
-#chomp @remote_files;
-#$_ = [split " ", $_, 2] for @remote_files;
+my $LOOP = IO::Async::Loop->new;
 
-my @selected_rows;
+my $ROOT = Tickit::Widget::Box->new(
+	h_border => 4,
+	v_border => 2,
+	bg       => "black",
+	fg       => "white",
+	align    => "centre",
+	valign   => "middle",
+);
+my $tickit = Tickit::Async->new( root => $ROOT );
+$LOOP->add( $tickit );
 
-if( $::SKIP_GUI ) { 
-	@selected_rows = @remote_files;
-	goto BEGIN_DOWNLOAD;
+main();
+exit;
+
+
+
+sub main {
+
+	my @remote_files = map { 
+		chomp; 
+		my $x = [split " ", $_, 2];
+		$x->[1] =~ s/$dir\/?//;
+		$x 
+	} `$ssh $host du -hscL $dir/\\*`;
+	pop @remote_files; #du summary line
+
+
+	#if( $::SKIP_GUI ) { 
+		#@selected_rows = @remote_files;
+		#goto BEGIN_DOWNLOAD;
+	#}
+	
+	show_choices( @remote_files );
+
+	$tickit->run;
 }
 
-my $tickit; 
-my $table = TW::Table::Paged->new( 
+sub show_choices {
+	my @remote_files = @_;
 
-	style => {
-		highlight_bg => 'green',
-		highlight_fg => 'black',
-		cell_padding => 2,
+	my $table = TW::Table::Paged->new( 
 
-		'<j>' => 'select_toggle',
-		'<w>' => 'previous_row',
-		'<s>' => 'next_row',
-	},
+		style => {
+			highlight_bg => 'green',
+			highlight_fg => 'black',
+			cell_padding => 2,
 
-	multi_select => 1,
-	cursor_hidden => 1,
-);
+			'<j>' => 'select_toggle',
+			'<w>' => 'previous_row',
+			'<s>' => 'next_row',
+		},
 
-$table->{row_offset} = 0;
-$table->add_column( Label => "Size", align => "left", width => 6 );
-$table->add_column( Label => "File Name", align => "left", width => 80 );
-$table->add_row( $_->[0], $_->[1] ) for @remote_files;
+		multi_select => 1,
+		cursor_hidden => 1,
+	);
 
-
-my $hbox = TW::HBox->new;
-$hbox->add( 
-TW::Box->new(child_lines => 3, child_cols => 16, child => 
-	TW::Button->new( label => "Download", on_click => sub { @selected_rows = $table->selected_rows; $tickit->stop; } ),
-	),
-	expand => 1 
-);
-$hbox->add( 
-TW::Box->new(child_lines => 3, child_cols => 16, child => 
-	TW::Button->new( label => "Cancel", on_click => sub {$tickit->stop;exit;} ),
-	),
-	expand => 1 
-);
-
-my $vbox = TW::VBox->new;
-$vbox->add( $table, expand => 1 );
-$vbox->add( $hbox, expand => 1 );
-
-my $box = TW::Box->new( 
-	child_lines => 45,
-	child_cols => 90,
-	valign => 0.5,
-	align => 'centre', 
-	child => $vbox 
-);
-
-$tickit = Tickit->new( root => $box );
-$tickit->run;
+	$table->{row_offset} = 0;
+	$table->add_column( Label => "Size", align => "left", width => 6 );
+	$table->add_column( Label => "File Name", align => "left", width => 80 );
+	$table->add_row( $_->[0], $_->[1] ) for @remote_files;
 
 
-##################
-# Start downloads based on selected files.
-BEGIN_DOWNLOAD:
-for my $row ( @selected_rows ) { 
-	my $file = $row->[1];
+	my $hbox = TW::HBox->new;
+	$hbox->add( 
+	TW::Box->new(child_lines => 3, child_cols => 16, child => 
+		TW::Button->new( label => "Download", on_click => sub { begin_download($table->selected_rows); } ),
+		),
+		expand => 1 
+	);
+	$hbox->add( 
+	TW::Box->new(child_lines => 3, child_cols => 16, child => 
+		TW::Button->new( label => "Cancel", on_click => sub {exit;} ),
+		),
+		expand => 1 
+	);
 
-	print "==== Starting $file ====\n\n";
+	my $vbox = TW::VBox->new;
+	$vbox->add( $table, expand => 1 );
+	$vbox->add( $hbox, expand => 1 );
 
-	#my $scp_ret = system( $scp, "-r", "$host:$dir/\Q$file", "." );
-	my $scp_ret = system( 'rsync', "-rvzL", "--progress", "--size-only", "$host:$dir/\Q$file", "." );
-	if( $scp_ret == 0 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ) }
+	my $box = TW::Box->new( 
+		child_lines => 45,
+		child_cols => 90,
+		valign => 0.5,
+		align => 'centre', 
+		child => $vbox 
+	);
+
+	$ROOT->set_child( $box );
+
+}
 
 
+sub begin_download {
+	my @selected_rows = @_;
+	return unless @selected_rows;
 
-	print "\n";
+	my $hbox = TW::HBox->new;
+	$ROOT->set_child( $hbox );
+
+	my $cb;
+	$cb = sub {
+		my $rs = shift;
+
+		$hbox->remove( $rs->{widget} );
+		$LOOP->remove( $rs->{process} );
+
+		if( @selected_rows ) {
+			my $new_rs = Rsync->new({file=>shift(@selected_rows)->[1],dir=>$dir,host=>$host },$LOOP,$cb);
+			$hbox->add( $new_rs->{widget} );
+		}
+
+		if( $hbox->children == 0 ) { $tickit->stop; }
+	};
+
+	for( 0 .. 2 ) {
+		if( @selected_rows ) {
+			my $new_rs = Rsync->new({file=>shift(@selected_rows)->[1],dir=>$dir,host=>$host },$LOOP,$cb);
+			$hbox->add( $new_rs->{widget} );
+		}
+	}
+
+	#for my $row ( @selected_rows ) { 
+		#my $file = $row->[1];
+
+		#print "==== Starting $file ====\n\n";
+
+		#my $scp_ret = system( 'rsync', "-rvzL", "--progress", "--size-only", "$host:$dir/\Q$file", "." );
+		#if( $scp_ret == 0 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ) }
+
+		#print "\n";
+	#}
 }
