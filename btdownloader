@@ -1,144 +1,184 @@
-#!/usr/bin/perl
+#!/usr/bin/perl 
 
 use strict;
 use warnings;
+use feature 'current_sub';
 
-use String::ShellQuote qw/shell_quote/;
+open STDERR, ">", "/tmp/btlogs" or die $!;
 
 use IO::Async::Loop;
-
+use IO::Async::Process;
 use Tickit::Async;
-use Tickit::Widgets qw/Box VBox HBox Button Static/;
+
+use Tickit::Widgets qw/Box HBox VBox Static Border Frame Button/;
 use Tickit::Widget::Table::Paged;
-BEGIN { *TW:: = *Tickit::Widget:: }
+use Tickit::Widget::Progressbar::Horizontal;
 
-use FindBin qw($Bin);
-use lib "$Bin/";
+my $HOST = 'rt.rmz.gs';
+my $WIDTH = 100;
+my $HEIGHT = 40;
 
-use Rsync;
+my $ROOT = Tickit::Widget::Frame->new( style => { linetype => 'single' } );
+my $box = Tickit::Widget::Box->new( child_cols => $WIDTH, child_lines => $HEIGHT, child => $ROOT );
 
-my $ssh = 'ssh';
-my $host = "dhau.rmz.gs";
-my $dir = shell_quote "rt/done";
-#if( $ARGV[0] eq '-a' ) { $::SKIP_GUI = 1 }
+####
+####
+
+my @files = get_file_list();
+display_file_list(@files);
 
 my $LOOP = IO::Async::Loop->new;
+my $TICKIT = Tickit::Async->new( root => $box );
+$LOOP->add( $TICKIT );
+$TICKIT->run;
 
-my $ROOT = Tickit::Widget::Box->new(
-	h_border => 4,
-	v_border => 2,
-	#bg       => "white",
-	#fg       => "black",
-	align    => "centre",
-	valign   => "middle",
-);
-my $tickit = Tickit::Async->new( root => $ROOT );
-$LOOP->add( $tickit );
+#####################
+# ---------------------------------------------------------------------------------
+#####################
 
-main();
-exit;
+sub get_file_list {
+	my @output = map [split( /\s+/, trim($_), 2)],  ssh( 'du -hsL rt/done/*' );
 
-
-
-sub main {
-
-	my @remote_files = map { 
-		chomp; 
-		my $x = [split " ", $_, 2];
-		$x->[1] =~ s/$dir\/?//;
-		$x 
-	} `$ssh $host du -hscL $dir/\\*`;
-	pop @remote_files; #du summary line
-
-	show_choices( @remote_files );
-
-	$tickit->run;
-}
-
-sub show_choices {
-	my @remote_files = @_;
-
-	my $table = TW::Table::Paged->new( 
-
-		style => {
-			#highlight_bg => 'blue',
-			#highlight_fg => 'black',
-			cell_padding => 2,
-
-			'<j>' => 'select_toggle',
-			'<w>' => 'previous_row',
-			'<s>' => 'next_row',
-		},
-
-		multi_select => 1,
-		cursor_hidden => 1,
-	);
-
-	$table->{row_offset} = 0;
-	$table->add_column( Label => "Size", align => "left", width => 6 );
-	$table->add_column( Label => "File Name", align => "left", width => 80 );
-	$table->add_row( $_->[0], $_->[1] ) for @remote_files;
-
-
-	my $hbox = TW::HBox->new;
-	$hbox->add( 
-	TW::Box->new(child_lines => 3, child_cols => 16, child => 
-		TW::Button->new( label => "Download", on_click => sub { begin_download($table->selected_rows); } ),
-		),
-		expand => 1 
-	);
-	$hbox->add( 
-	TW::Box->new(child_lines => 3, child_cols => 16, child => 
-		TW::Button->new( label => "Cancel", on_click => sub {exit;} ),
-		),
-		expand => 1 
-	);
-
-	my $vbox = TW::VBox->new;
-	$vbox->add( $table, expand => 1 );
-	$vbox->add( $hbox, expand => 1 );
-
-	my $box = TW::Box->new( 
-		child_lines => 45,
-		child_cols => 90,
-		valign => 0.5,
-		align => 'centre', 
-		child => $vbox 
-	);
-
-	$ROOT->set_child( $box );
-
-}
-
-
-sub begin_download {
-	my @selected_rows = @_;
-	return unless @selected_rows;
-
-	my $hbox = TW::HBox->new;
-	$ROOT->set_child( $hbox );
-
-	my $cb;
-	$cb = sub {
-		my $rs = shift;
-
-		$hbox->remove( $rs->{widget} );
-		$LOOP->remove( $rs->{process} );
-
-		if( @selected_rows ) {
-			my $new_rs = Rsync->new({file=>shift(@selected_rows)->[1],dir=>$dir,host=>$host },$LOOP,$cb);
-			$hbox->add( $new_rs->{widget} );
-		}
-
-		if( $hbox->children == 0 ) { 
-				$tickit->stop; 
-		}
-	};
-
-	for( 0 .. 2 ) {
-		if( @selected_rows ) {
-			my $new_rs = Rsync->new({file=>shift(@selected_rows)->[1],dir=>$dir,host=>$host },$LOOP,$cb);
-			$hbox->add( $new_rs->{widget} );
+	for( @output ) {
+		if( $_->[0] =~/G/ ) {
+			$_->[2] = [ map trim(), ssh( "ls -d $_->[1]/*" )];
 		}
 	}
+
+	return @output;
+}
+
+sub display_file_list {
+	my @files = @_;
+
+	my $table = Tickit::Widget::Table::Paged->new( multi_select => 1 );
+	$table->{row_offset} = 0;
+
+	$table->add_column( label => 'Id', align => 'left', width => 3 );
+	$table->add_column( label => 'File', align => 'left', );
+	$table->add_column( label => 'Size', width => 15, align => 'right' );
+
+
+	my $index = 0;
+	for( @files ) {
+		my $fn = (split'/',$_->[1])[-1];
+		$fn = substr $fn, 0, $WIDTH-20;
+		$table->add_row( $index++, $fn, $_->[0] ) 
+	}
+
+	my $vbox = Tickit::Widget::VBox->new;
+	$vbox->add( $table, expand => 1 );
+
+	my $button_box = Tickit::Widget::HBox->new;
+	my $select = Tickit::Widget::Button->new( 
+		label => "Submit", 
+		bg => 254, 
+		on_click => sub { 
+			my @row_ids = map $_->[0], $table->selected_rows;
+
+			download_files( @files[@row_ids] );
+		}
+	);
+	my $cancel = Tickit::Widget::Button->new( label => "Cancel", bg => 254, on_click => sub { exit } );
+
+	$button_box->add( Tickit::Widget::Box->new( child_cols => 26, child => $select ), expand => 1, );
+	$button_box->add( Tickit::Widget::Box->new( child_cols => 26, child => $cancel ), expand => 1, );
+
+	$vbox->add( $button_box );
+
+	$ROOT->set_child( $vbox );
+}
+
+my $RSYNC_COUNTER = 0;
+sub download_files {
+	my @files = map { $_->[2] ? @{$_->[2]} : $_->[1] } @_;
+
+	my $vbox = Tickit::Widget::VBox->new;
+	$ROOT->set_child( $vbox );
+
+	my $callback = sub {
+		my $oldwidget = shift;
+		if( $oldwidget ) { $vbox->remove( $oldwidget ); $RSYNC_COUNTER--; }
+		if( not @files ) {
+			if( $RSYNC_COUNTER == 0 ) {
+				exit;
+			}
+			else {
+				return;
+			}
+		}
+
+		my $file = shift @files;
+
+		my( $widget, $process ) = create_rsync( $file, __SUB__ );
+
+		$vbox->add( $widget );
+		$LOOP->add( $process );
+	};
+
+	for( 0 .. 4 ) { 
+		$callback->();
+	}
+}
+
+sub ssh {
+	return `ssh $HOST '$_[0]'`
+}
+
+sub trim {
+	my $s = $_[0] // $_;
+	$s =~ s/^\s+//;
+	$s =~ s/\s+$//;
+	return $s;
+}
+
+sub create_rsync {
+	my( $file, $cb ) = @_;
+
+	my $title = substr( (split'/',$file)[-1], 0, ( $WIDTH - 10 ) );
+
+	my $progress = Tickit::Widget::Progressbar::Horizontal->new( completion => 0 );
+
+	my $sframe = Tickit::Widget::Frame->new( title => $title, child => $progress, style => { linetype => 'single' } );
+	my $sbox = Tickit::Widget::Box->new( child_cols => '100%', child_lines => 3, child => $sframe );
+	my $pvbox = Tickit::Widget::VBox->new;
+
+	$pvbox->add( $sbox );
+
+	my $static = Tickit::Widget::Static->new( text => "---" );
+	$pvbox->add( $static );
+
+	my $process = IO::Async::Process->new(
+		command => [qw/rsync --progress --size-only -rvzL/, "$HOST:'$file'", "."],
+		on_finish => sub { 
+			my( $process, $exit ) = @_;
+
+			if( $exit == 0 ) {
+				$LOOP->fork( code => sub {
+					system( 'ssh', $HOST, 'rm', '-f', quotemeta $file );
+				});
+			}
+
+			$cb->($pvbox);
+		},
+		stdout => {
+			on_read => sub {
+				my( $stream, $buffer ) = @_;
+				my $text = $$buffer;
+				$$buffer="";
+				$text =~ s/^\s+//;
+				$text =~ s/\s+$//;
+
+				return unless length $text > 1;
+
+				$static->set_text( substr( $text, 0, ( $WIDTH - 10 ) ) );
+
+				if( $text =~ /(\d+)%/ ) { 
+					warn "ATTEMPTING TO SET PROGRESS->COMPLETION($1/100)";
+					$progress->completion( $1/100 );
+				}
+			}
+		}
+	);
+	return( $pvbox, $process );
 }
