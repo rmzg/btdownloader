@@ -25,9 +25,9 @@ sub new {
 		child_cols => 40,
 	);
 
-	$box = Tickit::Widget::Frame->new( child => $box, title => $file->{file}, style => { fg => 'green', linetype => 'single' } );
+	$box = Tickit::Widget::Frame->new( child => $box, title => $file->{file}, style => { fg => 'blue', linetype => 'single' } );
 
-	$self->{label} = Tickit::Widget::Static->new( text => "0%", fg => 'white' );
+	$self->{label} = Tickit::Widget::Static->new( text => "0%", fg => 'black' );
 
 	my $vbox = Tickit::Widget::VBox->new;
 	$vbox->add($box);
@@ -35,7 +35,6 @@ sub new {
 
 	$self->{widget} = $vbox;
 
-	#     18,612,224   1%    3.89MB/s    0:04:06  ]
 	my $process = IO::Async::Process->new(
 		command => [qw/rsync --progress --size-only -rvzL/, "$file->{host}:$file->{dir}/\Q$file->{file}", "."],
 		on_finish => sub { 

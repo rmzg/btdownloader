@@ -12,6 +12,9 @@ use Tickit::Widgets qw/Box VBox HBox Button Static/;
 use Tickit::Widget::Table::Paged;
 BEGIN { *TW:: = *Tickit::Widget:: }
 
+use FindBin qw($Bin);
+use lib "$Bin/";
+
 use Rsync;
 
 my $ssh = 'ssh';
@@ -24,8 +27,8 @@ my $LOOP = IO::Async::Loop->new;
 my $ROOT = Tickit::Widget::Box->new(
 	h_border => 4,
 	v_border => 2,
-	bg       => "black",
-	fg       => "white",
+	#bg       => "white",
+	#fg       => "black",
 	align    => "centre",
 	valign   => "middle",
 );
@@ -47,12 +50,6 @@ sub main {
 	} `$ssh $host du -hscL $dir/\\*`;
 	pop @remote_files; #du summary line
 
-
-	#if( $::SKIP_GUI ) { 
-		#@selected_rows = @remote_files;
-		#goto BEGIN_DOWNLOAD;
-	#}
-	
 	show_choices( @remote_files );
 
 	$tickit->run;
@@ -64,8 +61,8 @@ sub show_choices {
 	my $table = TW::Table::Paged->new( 
 
 		style => {
-			highlight_bg => 'green',
-			highlight_fg => 'black',
+			#highlight_bg => 'blue',
+			#highlight_fg => 'black',
 			cell_padding => 2,
 
 			'<j>' => 'select_toggle',
@@ -144,15 +141,4 @@ sub begin_download {
 			$hbox->add( $new_rs->{widget} );
 		}
 	}
-
-	#for my $row ( @selected_rows ) { 
-		#my $file = $row->[1];
-
-		#print "==== Starting $file ====\n\n";
-
-		#my $scp_ret = system( 'rsync', "-rvzL", "--progress", "--size-only", "$host:$dir/\Q$file", "." );
-		#if( $scp_ret == 0 ) { system( $ssh, $host, 'rm', '-f', "$dir/\Q$file" ) }
-
-		#print "\n";
-	#}
 }
