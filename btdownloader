@@ -18,6 +18,7 @@ my $HOST = 'rt.rmz.gs';
 my $WIDTH = 100;
 my $HEIGHT = 40;
 my $RSYNC_COUNTER = 0;
+my $REMOTE_DIR = 'rt/done';
 
 my $ROOT = Tickit::Widget::Frame->new( style => { linetype => 'single' } );
 my $box = Tickit::Widget::Box->new( child_cols => $WIDTH, child_lines => $HEIGHT, child => $ROOT );
@@ -38,7 +39,7 @@ $TICKIT->run;
 #####################
 
 sub get_file_list {
-	my @output = map [split( /\s+/, trim($_), 2)],  ssh( 'du -hsL rt/done/*' );
+	my @output = map [split( /\s+/, trim($_), 2)],  ssh( "du -hsL $REMOTE_DIR/*" );
 
 	for( @output ) {
 		if( $_->[0] =~/G/ ) {
@@ -103,7 +104,7 @@ sub download_files {
 		if( $oldwidget ) { 
 			$vbox->remove( $oldwidget ); $RSYNC_COUNTER--; 
 
-			my( $file_root ) = $oldfile =~ m{(/?rt/done/[^/]+)};
+			my( $file_root ) = $oldfile =~ m{(/?$REMOTE_DIR/[^/]+)};
 
 			if( $exit == 0 and not grep /\Q$file_root/, @files ) {
 				$LOOP->fork( code => sub {
@@ -159,7 +160,7 @@ sub create_rsync {
 	my $static = Tickit::Widget::Static->new( text => "---" );
 	$pvbox->add( $static );
 
-	my( $output_dir ) = $file =~ m{^/?rt/done/([^/]+)};
+	my( $output_dir ) = $file =~ m{^/?$REMOTE_DIR/([^/]+)};
 	mkdir $output_dir;
 	my $process = IO::Async::Process->new(
 		command => [qw/rsync --progress --size-only -rvzL/, "$HOST:'$file'", "$output_dir/"],
