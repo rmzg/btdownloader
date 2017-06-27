@@ -17,6 +17,7 @@ use Tickit::Widget::Progressbar::Horizontal;
 my $HOST = 'rt.rmz.gs';
 my $WIDTH = 100;
 my $HEIGHT = 40;
+my $RSYNC_COUNTER = 0;
 
 my $ROOT = Tickit::Widget::Frame->new( style => { linetype => 'single' } );
 my $box = Tickit::Widget::Box->new( child_cols => $WIDTH, child_lines => $HEIGHT, child => $ROOT );
@@ -41,7 +42,7 @@ sub get_file_list {
 
 	for( @output ) {
 		if( $_->[0] =~/G/ ) {
-			$_->[2] = [ map trim(), ssh( "ls -d $_->[1]/*" )];
+			$_->[2] = [ map trim(), ssh( "ls -d \Q$_->[1]\E/*" )];
 		}
 	}
 
@@ -61,9 +62,10 @@ sub display_file_list {
 
 	my $index = 0;
 	for( @files ) {
-		my $fn = (split'/',$_->[1])[-1];
-		$fn = substr $fn, 0, $WIDTH-20;
-		$table->add_row( $index++, $fn, $_->[0] ) 
+		my $name = (split'/',$_->[1])[-1];
+		$name = substr $name, 0, $WIDTH-20;
+		$name =~ s/[\r\n\t]//g;
+		$table->add_row( $index++, $name, $_->[0] ) 
 	}
 
 	my $vbox = Tickit::Widget::VBox->new;
@@ -89,7 +91,6 @@ sub display_file_list {
 	$ROOT->set_child( $vbox );
 }
 
-my $RSYNC_COUNTER = 0;
 sub download_files {
 	my @files = map { $_->[2] ? @{$_->[2]} : $_->[1] } @_;
 
@@ -97,20 +98,29 @@ sub download_files {
 	$ROOT->set_child( $vbox );
 
 	my $callback = sub {
-		my $oldwidget = shift;
-		if( $oldwidget ) { $vbox->remove( $oldwidget ); $RSYNC_COUNTER--; }
+		my( $oldwidget, $oldfile, $exit ) = @_;
+
+		if( $oldwidget ) { 
+			$vbox->remove( $oldwidget ); $RSYNC_COUNTER--; 
+
+			my( $file_root ) = $oldfile =~ m{(/?rt/done/[^/]+)};
+
+			if( $exit == 0 and not grep /\Q$file_root/, @files ) {
+				$LOOP->fork( code => sub {
+					system( 'ssh', $HOST, 'rm', '-f', quotemeta $file_root );
+				});
+			}
+
+		}
 		if( not @files ) {
-			if( $RSYNC_COUNTER == 0 ) {
-				exit;
-			}
-			else {
-				return;
-			}
+			if( $RSYNC_COUNTER == 0 ) { exit; }
+			return;
 		}
 
 		my $file = shift @files;
 
 		my( $widget, $process ) = create_rsync( $file, __SUB__ );
+		$RSYNC_COUNTER++;
 
 		$vbox->add( $widget );
 		$LOOP->add( $process );
@@ -136,6 +146,7 @@ sub create_rsync {
 	my( $file, $cb ) = @_;
 
 	my $title = substr( (split'/',$file)[-1], 0, ( $WIDTH - 10 ) );
+		$title =~ s/[\r\n\t]//g;
 
 	my $progress = Tickit::Widget::Progressbar::Horizontal->new( completion => 0 );
 
@@ -148,18 +159,15 @@ sub create_rsync {
 	my $static = Tickit::Widget::Static->new( text => "---" );
 	$pvbox->add( $static );
 
+	my( $output_dir ) = $file =~ m{^/?rt/done/([^/]+)};
+	mkdir $output_dir;
 	my $process = IO::Async::Process->new(
-		command => [qw/rsync --progress --size-only -rvzL/, "$HOST:'$file'", "."],
+		command => [qw/rsync --progress --size-only -rvzL/, "$HOST:'$file'", "$output_dir/"],
 		on_finish => sub { 
 			my( $process, $exit ) = @_;
 
-			if( $exit == 0 ) {
-				$LOOP->fork( code => sub {
-					system( 'ssh', $HOST, 'rm', '-f', quotemeta $file );
-				});
-			}
 
-			$cb->($pvbox);
+			$cb->($pvbox, $file, $exit);
 		},
 		stdout => {
 			on_read => sub {
@@ -171,10 +179,11 @@ sub create_rsync {
 
 				return unless length $text > 1;
 
-				$static->set_text( substr( $text, 0, ( $WIDTH - 10 ) ) );
+				my $status = substr( $text, 0, ( $WIDTH - 10 ) );
+					$status =~ s/[\r\n\t]//g;
+				$static->set_text( $status );
 
 				if( $text =~ /(\d+)%/ ) { 
-					warn "ATTEMPTING TO SET PROGRESS->COMPLETION($1/100)";
 					$progress->completion( $1/100 );
 				}
 			}
